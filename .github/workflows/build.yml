@@ -1,0 +1,108 @@
+name: Build Titles
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build titles with full names
+        run: |
+          curl -L https://datasets.imdbws.com/title.basics.tsv.gz | gunzip > basics.tsv
+          curl -L https://datasets.imdbws.com/title.crew.tsv.gz | gunzip > crew.tsv
+          curl -L https://datasets.imdbws.com/title.principals.tsv.gz | gunzip > principals.tsv
+          curl -L https://datasets.imdbws.com/name.basics.tsv.gz | gunzip > names.tsv
+          python3 << 'PY'
+          import csv, os, json
+          from collections import defaultdict
+
+          print("loading names...")
+          names = {}
+          with open('names.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  names[r['nconst']] = r['primaryName']
+
+          print("loading basics...")
+          basics = {}
+          with open('basics.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  if r['titleType'] not in ('movie','tvSeries','tvMiniSeries','tvMovie'): continue
+                  try: startYear = int(r['startYear']) if r['startYear']!='\\N' else None
+                  except: startYear = None
+                  try: endYear = int(r['endYear']) if r['endYear']!='\\N' else None
+                  except: endYear = None
+                  try: runtime = int(r['runtimeMinutes']) if r['runtimeMinutes']!='\\N' else None
+                  except: runtime = None
+
+                  basics[r['tconst']] = {
+                      "title": r['primaryTitle'],
+                      "originalTitle": r['originalTitle'],
+                      "type": r['titleType'],
+                      "startYear": startYear,
+                      "endYear": endYear,
+                      "runtimeMinutes": runtime,
+                      "genres": r['genres'].split(',') if r['genres']!='\\N' else [],
+                      "isAdult": r['isAdult']=='1'
+                  }
+
+          print(f"basics count: {len(basics)}")
+
+          print("loading crew...")
+          crew = {}
+          with open('crew.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  if r['tconst'] not in basics: continue
+                  crew[r['tconst']] = {
+                      "directors": [{"id": x, "name": names.get(x, x)} for x in r['directors'].split(',') if x!='\\N'],
+                      "writers": [{"id": x, "name": names.get(x, x)} for x in r['writers'].split(',') if x!='\\N']
+                  }
+
+          print("loading cast...")
+          cast = defaultdict(list)
+          with open('principals.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  tid = r['tconst']
+                  if tid not in basics: continue
+                  if r['category'] not in ('actor','actress'): continue
+                  if int(r['ordering']) > 10: continue
+                  chars = r['characters'].replace('["','').replace('"]','').replace('","',', ')[:100]
+                  cast[tid].append({
+                      "id": r['nconst'],
+                      "name": names.get(r['nconst'], r['nconst']),
+                      "characters": chars
+                  })
+
+          print("writing...")
+          count=0
+          for tid, info in basics.items():
+              shard = tid[2:4]
+              os.makedirs(f'out/{shard}', exist_ok=True)
+              data = {
+                  **info,
+                  "directors": crew.get(tid, {}).get("directors", []),
+                  "writers": crew.get(tid, {}).get("writers", []),
+                  "cast": cast.get(tid, [])
+              }
+              open(f'out/{shard}/{tid}.json','w', encoding='utf-8').write(json.dumps(data, ensure_ascii=False))
+              count+=1
+          print(f"written {count} titles")
+          PY
+          du -sh out
+
+      - name: Deploy to gh-pages
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git checkout --orphan gh-pages
+          rm -rf.github *.tsv
+          mv out titles
+          git add titles
+          git commit -m "titles v1"
+          git push -f origin gh-pages
