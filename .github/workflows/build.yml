@@ -4,7 +4,8 @@ on:
   schedule:
     - cron: "0 2 * * 1"
   workflow_dispatch:
-
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -124,14 +125,26 @@ jobs:
 
       - name: Deploy titles only
         run: |
+          set -euo pipefail
+
           git config user.name "bot"
           git config user.email "bot@bot.com"
+
           git checkout --orphan gh-pages
-          rm -rf.github
+
+          # حذف فایل‌های track‌شده‌ی branch قبلی
+          git rm -rf . || true
+
+          # حذف فایل‌های دانلودشده و خروجی‌های ناخواسته
+          rm -rf .github out/episodes
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out/titles.
-          mv out/version.json.
+
+          # انتقال فقط خروجی موردنیاز به root شاخه gh-pages
+          mv out/titles ./titles
+          mv out/version.json ./version.json
+
           rm -rf out
+
           git add titles version.json
           git commit -m "titles only - no episodes"
-          git push -f origin gh-pages
+          git push --force origin gh-pages
