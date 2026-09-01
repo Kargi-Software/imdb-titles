@@ -144,7 +144,7 @@ jobs:
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          rm -rf.github
+          rm -rf .github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
           mv out/* .
           rm -rf out
