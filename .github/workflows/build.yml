@@ -1,11 +1,9 @@
-name: Build Titles
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 3 * * 1'
+name: Build titles
 
-permissions:
-  contents: write
+on:
+  schedule:
+    - cron: "0 2 * * 1" # هر دوشنبه 2 شب
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,97 +11,124 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build titles with full names
+      - name: Download IMDb datasets
         run: |
           curl -L https://datasets.imdbws.com/title.basics.tsv.gz | gunzip > basics.tsv
           curl -L https://datasets.imdbws.com/title.crew.tsv.gz | gunzip > crew.tsv
           curl -L https://datasets.imdbws.com/title.principals.tsv.gz | gunzip > principals.tsv
           curl -L https://datasets.imdbws.com/name.basics.tsv.gz | gunzip > names.tsv
+
+      - name: Build JSONs
+        run: |
           python3 << 'PY'
-          import csv, os, json
+          import csv, json, os
           from collections import defaultdict
 
-          print("loading names...")
+          print("Loading names...")
           names = {}
           with open('names.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   names[r['nconst']] = r['primaryName']
 
-          print("loading basics...")
+          print("Loading basics...")
           basics = {}
           with open('basics.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
-                  if r['titleType'] not in ('movie','tvSeries','tvMiniSeries','tvMovie'): continue
-                  try: startYear = int(r['startYear']) if r['startYear']!='\\N' else None
-                  except: startYear = None
-                  try: endYear = int(r['endYear']) if r['endYear']!='\\N' else None
-                  except: endYear = None
-                  try: runtime = int(r['runtimeMinutes']) if r['runtimeMinutes']!='\\N' else None
-                  except: runtime = None
+                  if r['titleType'] in ('movie','tvSeries','tvMiniSeries','tvMovie'):
+                      basics[r['tconst']] = {
+                          'title': r['primaryTitle'],
+                          'type': r['titleType'],
+                          'startYear': int(r['startYear']) if r['startYear']!= '\\N' else None,
+                          'endYear': int(r['endYear']) if r['endYear']!= '\\N' else None,
+                          'runtime': int(r['runtimeMinutes']) if r['runtimeMinutes']!= '\\N' else None,
+                          'genres': r['genres'].split(',') if r['genres']!= '\\N' else []
+                      }
 
-                  basics[r['tconst']] = {
-                      "title": r['primaryTitle'],
-                      "originalTitle": r['originalTitle'],
-                      "type": r['titleType'],
-                      "startYear": startYear,
-                      "endYear": endYear,
-                      "runtimeMinutes": runtime,
-                      "genres": r['genres'].split(',') if r['genres']!='\\N' else [],
-                      "isAdult": r['isAdult']=='1'
-                  }
+          print("Loading creators from principals...")
+          creators_map = defaultdict(list)
+          writers_all = defaultdict(list)
+          directors_all = defaultdict(list)
+          actors_all = defaultdict(list)
 
-          print(f"basics count: {len(basics)}")
-
-          print("loading crew...")
-          crew = {}
-          with open('crew.tsv', encoding='utf-8') as f:
-              for r in csv.DictReader(f, delimiter='\t'):
-                  if r['tconst'] not in basics: continue
-                  crew[r['tconst']] = {
-                      "directors": [{"id": x, "name": names.get(x, x)} for x in r['directors'].split(',') if x!='\\N'],
-                      "writers": [{"id": x, "name": names.get(x, x)} for x in r['writers'].split(',') if x!='\\N']
-                  }
-
-          print("loading cast...")
-          cast = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
-                  tid = r['tconst']
-                  if tid not in basics: continue
-                  if r['category'] not in ('actor','actress'): continue
-                  if int(r['ordering']) > 10: continue
-                  chars = r['characters'].replace('["','').replace('"]','').replace('","',', ')[:100]
-                  cast[tid].append({
-                      "id": r['nconst'],
-                      "name": names.get(r['nconst'], r['nconst']),
-                      "characters": chars
-                  })
+                  t = r['tconst']
+                  if t not in basics: continue
+                  n = r['nconst']
+                  cat = r['category']
+                  job = r['job']
+                  order = int(r['ordering'])
 
-          print("writing...")
-          count=0
+                  # سازنده واقعی: category=writer و job=creator
+                  if cat == 'writer' and job == 'creator':
+                      creators_map[t].append((order, n))
+
+          print("Loading crew (writers/directors)...")
+          with open('crew.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  t = r['tconst']
+                  if t not in basics: continue
+                  # directors
+                  if r['directors']!= '\\N':
+                      for nid in r['directors'].split(',')[:10]:
+                          directors_all[t].append(nid)
+                  # writers (15 نفر کامل)
+                  if r['writers']!= '\\N':
+                      for nid in r['writers'].split(',')[:15]:
+                          writers_all[t].append(nid)
+
+          print("Loading actors from principals...")
+          with open('principals.tsv', encoding='utf-8') as f:
+              for r in csv.DictReader(f, delimiter='\t'):
+                  t = r['tconst']
+                  if t not in basics: continue
+                  if r['category'] in ('actor','actress','self'):
+                      if len(actors_all[t]) < 10:
+                          actors_all[t].append((int(r['ordering']), r['nconst']))
+
+          print("Writing...")
+          os.makedirs('out', exist_ok=True)
+          count = 0
           for tid, info in basics.items():
               shard = tid[2:4]
               os.makedirs(f'out/{shard}', exist_ok=True)
+
+              # creators مرتب شده دقیقا 1 تا 4 نفر
+              cr = creators_map.get(tid, [])
+              cr_sorted = [n for _, n in sorted(cr)]
+
+              # اگه سریال بود و creators خالی بود (بعضی سریالای قدیمی job ندارن) -> fallback به 2 تای اول writers
+              if info['type'] in ('tvSeries','tvMiniSeries') and not cr_sorted and writers_all.get(tid):
+                  cr_sorted = writers_all[tid][:2]
+
               data = {
                   **info,
-                  "directors": crew.get(tid, {}).get("directors", []),
-                  "writers": crew.get(tid, {}).get("writers", []),
-                  "cast": cast.get(tid, [])
+                  'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
+                  'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
+                  'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
+                  'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
               }
-              open(f'out/{shard}/{tid}.json','w', encoding='utf-8').write(json.dumps(data, ensure_ascii=False))
-              count+=1
-          print(f"written {count} titles")
+              with open(f'out/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
+                  json.dump(data, out, ensure_ascii=False)
+              count += 1
+
+          # version.json برای چک آپدیت ورکر
+          import datetime
+          with open('out/version.json', 'w') as vf:
+              json.dump({"updated": datetime.datetime.utcnow().isoformat()+"Z", "count": count}, vf)
+
+          print(f"Done {count}")
+
           PY
-          du -sh out
 
       - name: Deploy to gh-pages
         run: |
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          rm -rf .github
+          rm -rf.github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
           mv out titles
           git add titles
-          git commit -m "titles v1"
+          git commit -m "titles v2 with creators"
           git push -f origin gh-pages
