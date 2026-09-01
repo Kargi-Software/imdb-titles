@@ -146,7 +146,7 @@ jobs:
           git checkout --orphan gh-pages
           rm -rf.github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out/*.
+          mv out/* .
           rm -rf out
           git add titles episodes version.json
           git commit -m "titles with episodes light"
