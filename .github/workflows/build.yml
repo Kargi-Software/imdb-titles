@@ -17,6 +17,7 @@ jobs:
           curl -L https://datasets.imdbws.com/title.crew.tsv.gz | gunzip > crew.tsv
           curl -L https://datasets.imdbws.com/title.principals.tsv.gz | gunzip > principals.tsv
           curl -L https://datasets.imdbws.com/name.basics.tsv.gz | gunzip > names.tsv
+
       - name: Build JSONs
         run: |
           python3 << 'PY'
@@ -143,9 +144,9 @@ jobs:
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          rm -rf .github
+          rm -rf.github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out/* .
+          mv out/*.
           rm -rf out
           git add titles episodes version.json
           git commit -m "titles with episodes light"
