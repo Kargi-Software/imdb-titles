@@ -2,7 +2,7 @@ name: Build titles
 
 on:
   schedule:
-    - cron: "0 2 * * 1" # هر دوشنبه 2 شب
+    - cron: "0 2 * * 1"
   workflow_dispatch:
 
 jobs:
@@ -32,103 +32,110 @@ jobs:
 
           print("Loading basics...")
           basics = {}
+          episode_ids = set()
           with open('basics.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
-                  if r['titleType'] in ('movie','tvSeries','tvMiniSeries','tvMovie'):
-                      basics[r['tconst']] = {
+                  tt = r['tconst']
+                  typ = r['titleType']
+                  if typ in ('movie','tvSeries','tvMiniSeries','tvMovie','tvEpisode'):
+                      basics[tt] = {
                           'title': r['primaryTitle'],
-                          'type': r['titleType'],
+                          'type': typ,
                           'startYear': int(r['startYear']) if r['startYear']!= '\\N' else None,
                           'endYear': int(r['endYear']) if r['endYear']!= '\\N' else None,
                           'runtime': int(r['runtimeMinutes']) if r['runtimeMinutes']!= '\\N' else None,
                           'genres': r['genres'].split(',') if r['genres']!= '\\N' else []
                       }
+                      if typ == 'tvEpisode':
+                          episode_ids.add(tt)
 
-          print("Loading creators from principals...")
+          print("Loading creators...")
           creators_map = defaultdict(list)
-          writers_all = defaultdict(list)
-          directors_all = defaultdict(list)
-          actors_all = defaultdict(list)
-
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
-                  t = r['tconst']
-                  if t not in basics: continue
-                  n = r['nconst']
-                  cat = r['category']
-                  job = r['job']
-                  order = int(r['ordering'])
+                  if r['tconst'] in basics and r['category'] == 'writer' and r['job'] == 'creator':
+                      creators_map[r['tconst']].append((int(r['ordering']), r['nconst']))
 
-                  # سازنده واقعی: category=writer و job=creator
-                  if cat == 'writer' and job == 'creator':
-                      creators_map[t].append((order, n))
-
-          print("Loading crew (writers/directors)...")
+          print("Loading crew...")
+          writers_all = defaultdict(list)
+          directors_all = defaultdict(list)
           with open('crew.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
                   if t not in basics: continue
-                  # directors
                   if r['directors']!= '\\N':
-                      for nid in r['directors'].split(',')[:10]:
+                      for nid in r['directors'].split(',')[:5]:
                           directors_all[t].append(nid)
-                  # writers (15 نفر کامل)
                   if r['writers']!= '\\N':
-                      for nid in r['writers'].split(',')[:15]:
+                      # برای اپیزود فقط 3 نویسنده بسه که سبک بشه
+                      limit = 3 if t in episode_ids else 15
+                      for nid in r['writers'].split(',')[:limit]:
                           writers_all[t].append(nid)
 
-          print("Loading actors from principals...")
+          print("Loading actors (only for non-episodes)...")
+          actors_all = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
-                  if t not in basics: continue
-                  if r['category'] in ('actor','actress','self'):
-                      if len(actors_all[t]) < 10:
-                          actors_all[t].append((int(r['ordering']), r['nconst']))
+                  if t not in basics or t in episode_ids: continue
+                  if r['category'] in ('actor','actress','self') and len(actors_all[t]) < 10:
+                      actors_all[t].append((int(r['ordering']), r['nconst']))
 
           print("Writing...")
-          os.makedirs('out', exist_ok=True)
-          count = 0
+          os.makedirs('out/titles', exist_ok=True)
+          os.makedirs('out/episodes', exist_ok=True)
+          count_main = 0
+          count_ep = 0
+
           for tid, info in basics.items():
               shard = tid[2:4]
-              os.makedirs(f'out/{shard}', exist_ok=True)
+              is_ep = tid in episode_ids
 
-              # creators مرتب شده دقیقا 1 تا 4 نفر
               cr = creators_map.get(tid, [])
               cr_sorted = [n for _, n in sorted(cr)]
-
-              # اگه سریال بود و creators خالی بود (بعضی سریالای قدیمی job ندارن) -> fallback به 2 تای اول writers
               if info['type'] in ('tvSeries','tvMiniSeries') and not cr_sorted and writers_all.get(tid):
                   cr_sorted = writers_all[tid][:2]
 
-              data = {
-                  **info,
-                  'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
-                  'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
-                  'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
-                  'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
-              }
-              with open(f'out/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
-                  json.dump(data, out, ensure_ascii=False)
-              count += 1
+              if is_ep:
+                  # نسخه سبک برای اپیزود
+                  data = {
+                      **info,
+                      'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
+                      'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
+                  }
+                  os.makedirs(f'out/episodes/{shard}', exist_ok=True)
+                  with open(f'out/episodes/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
+                      json.dump(data, out, ensure_ascii=False)
+                  count_ep += 1
+              else:
+                  data = {
+                      **info,
+                      'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
+                      'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
+                      'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
+                      'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
+                  }
+                  os.makedirs(f'out/titles/{shard}', exist_ok=True)
+                  with open(f'out/titles/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
+                      json.dump(data, out, ensure_ascii=False)
+                  count_main += 1
 
-          # version.json برای چک آپدیت ورکر
           import datetime
           with open('out/version.json', 'w') as vf:
-              json.dump({"updated": datetime.datetime.utcnow().isoformat()+"Z", "count": count}, vf)
+              json.dump({"updated": datetime.datetime.utcnow().isoformat()+"Z", "main": count_main, "episodes": count_ep}, vf)
 
-          print(f"Done {count}")
-
+          print(f"Done main={count_main} episodes={count_ep}")
           PY
 
-      - name: Deploy to gh-pages
+      - name: Deploy
         run: |
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
           rm -rf.github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out titles
-          git add titles
-          git commit -m "titles v2 with creators"
+          mv out/*.
+          rm -rf out
+          git add titles episodes version.json
+          git commit -m "titles with episodes light"
           git push -f origin gh-pages
