@@ -17,12 +17,17 @@ jobs:
           curl -L https://datasets.imdbws.com/title.crew.tsv.gz | gunzip > crew.tsv
           curl -L https://datasets.imdbws.com/title.principals.tsv.gz | gunzip > principals.tsv
           curl -L https://datasets.imdbws.com/name.basics.tsv.gz | gunzip > names.tsv
-
       - name: Build JSONs
         run: |
           python3 << 'PY'
           import csv, json, os
           from collections import defaultdict
+
+          def to_int(v):
+              try:
+                  return int(v) if v!= '\\N' and v is not None and str(v).isdigit() else None
+              except:
+                  return None
 
           print("Loading names...")
           names = {}
@@ -41,9 +46,9 @@ jobs:
                       basics[tt] = {
                           'title': r['primaryTitle'],
                           'type': typ,
-                          'startYear': int(r['startYear']) if r['startYear']!= '\\N' else None,
-                          'endYear': int(r['endYear']) if r['endYear']!= '\\N' else None,
-                          'runtime': int(r['runtimeMinutes']) if r['runtimeMinutes']!= '\\N' else None,
+                          'startYear': to_int(r['startYear']),
+                          'endYear': to_int(r['endYear']),
+                          'runtime': to_int(r['runtimeMinutes']),
                           'genres': r['genres'].split(',') if r['genres']!= '\\N' else []
                       }
                       if typ == 'tvEpisode':
@@ -54,7 +59,10 @@ jobs:
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   if r['tconst'] in basics and r['category'] == 'writer' and r['job'] == 'creator':
-                      creators_map[r['tconst']].append((int(r['ordering']), r['nconst']))
+                      try:
+                          creators_map[r['tconst']].append((int(r['ordering']), r['nconst']))
+                      except:
+                          creators_map[r['tconst']].append((999, r['nconst']))
 
           print("Loading crew...")
           writers_all = defaultdict(list)
@@ -67,7 +75,6 @@ jobs:
                       for nid in r['directors'].split(',')[:5]:
                           directors_all[t].append(nid)
                   if r['writers']!= '\\N':
-                      # برای اپیزود فقط 3 نویسنده بسه که سبک بشه
                       limit = 3 if t in episode_ids else 15
                       for nid in r['writers'].split(',')[:limit]:
                           writers_all[t].append(nid)
@@ -79,7 +86,10 @@ jobs:
                   t = r['tconst']
                   if t not in basics or t in episode_ids: continue
                   if r['category'] in ('actor','actress','self') and len(actors_all[t]) < 10:
-                      actors_all[t].append((int(r['ordering']), r['nconst']))
+                      try:
+                          actors_all[t].append((int(r['ordering']), r['nconst']))
+                      except:
+                          actors_all[t].append((999, r['nconst']))
 
           print("Writing...")
           os.makedirs('out/titles', exist_ok=True)
@@ -97,7 +107,6 @@ jobs:
                   cr_sorted = writers_all[tid][:2]
 
               if is_ep:
-                  # نسخه سبک برای اپیزود
                   data = {
                       **info,
                       'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
@@ -126,6 +135,7 @@ jobs:
 
           print(f"Done main={count_main} episodes={count_ep}")
           PY
+
 
       - name: Deploy
         run: |
