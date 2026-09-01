@@ -24,10 +24,13 @@ jobs:
           from collections import defaultdict
 
           def to_int(v):
-              try:
-                  return int(v) if v!= '\\N' and v is not None and str(v).isdigit() else None
-              except:
-                  return None
+              if not v or v == '\\N': return None
+              try: return int(v)
+              except: return None
+
+          def to_genres(v):
+              if not v or v == '\\N': return []
+              return v.split(',')
 
           print("Loading names...")
           names = {}
@@ -46,10 +49,10 @@ jobs:
                       basics[tt] = {
                           'title': r['primaryTitle'],
                           'type': typ,
-                          'startYear': to_int(r['startYear']),
-                          'endYear': to_int(r['endYear']),
-                          'runtime': to_int(r['runtimeMinutes']),
-                          'genres': r['genres'].split(',') if r['genres']!= '\\N' else []
+                          'startYear': to_int(r.get('startYear')),
+                          'endYear': to_int(r.get('endYear')),
+                          'runtime': to_int(r.get('runtimeMinutes')),
+                          'genres': to_genres(r.get('genres'))
                       }
                       if typ == 'tvEpisode':
                           episode_ids.add(tt)
@@ -59,10 +62,9 @@ jobs:
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   if r['tconst'] in basics and r['category'] == 'writer' and r['job'] == 'creator':
-                      try:
-                          creators_map[r['tconst']].append((int(r['ordering']), r['nconst']))
-                      except:
-                          creators_map[r['tconst']].append((999, r['nconst']))
+                      try: order = int(r['ordering'])
+                      except: order = 999
+                      creators_map[r['tconst']].append((order, r['nconst']))
 
           print("Loading crew...")
           writers_all = defaultdict(list)
@@ -71,25 +73,26 @@ jobs:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
                   if t not in basics: continue
-                  if r['directors']!= '\\N':
-                      for nid in r['directors'].split(',')[:5]:
+                  d = r.get('directors')
+                  if d and d!= '\\N':
+                      for nid in d.split(',')[:5]:
                           directors_all[t].append(nid)
-                  if r['writers']!= '\\N':
+                  w = r.get('writers')
+                  if w and w!= '\\N':
                       limit = 3 if t in episode_ids else 15
-                      for nid in r['writers'].split(',')[:limit]:
+                      for nid in w.split(',')[:limit]:
                           writers_all[t].append(nid)
 
-          print("Loading actors (only for non-episodes)...")
+          print("Loading actors...")
           actors_all = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
                   if t not in basics or t in episode_ids: continue
                   if r['category'] in ('actor','actress','self') and len(actors_all[t]) < 10:
-                      try:
-                          actors_all[t].append((int(r['ordering']), r['nconst']))
-                      except:
-                          actors_all[t].append((999, r['nconst']))
+                      try: order = int(r['ordering'])
+                      except: order = 999
+                      actors_all[t].append((order, r['nconst']))
 
           print("Writing...")
           os.makedirs('out/titles', exist_ok=True)
@@ -100,7 +103,6 @@ jobs:
           for tid, info in basics.items():
               shard = tid[2:4]
               is_ep = tid in episode_ids
-
               cr = creators_map.get(tid, [])
               cr_sorted = [n for _, n in sorted(cr)]
               if info['type'] in ('tvSeries','tvMiniSeries') and not cr_sorted and writers_all.get(tid):
@@ -135,7 +137,6 @@ jobs:
 
           print(f"Done main={count_main} episodes={count_ep}")
           PY
-
 
       - name: Deploy
         run: |
