@@ -129,19 +129,28 @@ jobs:
 
           print(f"Done main={count_main} episodes=0 skipped")
           PY
-
-      - name: Deploy titles only
-        run: |
-          set -euo pipefail
-          git config user.name "bot"
-          git config user.email "bot@bot.com"
-          git checkout --orphan gh-pages
-          git rm -rf. || true
-          rm -rf.github out/episodes
-          rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out/titles./titles
-          mv out/version.json./version.json
-          rm -rf out
-          git add titles version.json
-          git commit -m "titles only - fixed creators"
-          git push --force origin gh-pages
+          - name: Deploy titles only
+            run: |
+              set -euo pipefail
+          
+              git config user.name "bot"
+              git config user.email "bot@bot.com"
+          
+              git checkout --orphan gh-pages
+          
+              # پاک کردن فایل‌های branch قبلی از index و working tree
+              git rm -rf --ignore-unmatch .
+          
+              # فایل‌های موقت و خروجی اپیزودها نباید deploy شوند
+              rm -rf .github out/episodes
+              rm -f basics.tsv crew.tsv principals.tsv names.tsv
+          
+              # فقط titles و version منتشر شوند
+              mv out/titles ./titles
+              mv out/version.json ./version.json
+          
+              rm -rf out
+          
+              git add titles version.json
+              git commit -m "titles only - fixed creators"
+              git push --force origin gh-pages
