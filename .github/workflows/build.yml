@@ -28,7 +28,6 @@ jobs:
               if not v or v == r'\N': return None
               try: return int(v)
               except: return None
-
           def to_genres(v):
               if not v or v == r'\N': return []
               return v.split(',')
@@ -45,7 +44,6 @@ jobs:
               for r in csv.DictReader(f, delimiter='\t'):
                   tt = r['tconst']
                   typ = r['titleType']
-                  # فقط فیلم و سریال - tvEpisode حذف شد
                   if typ in ('movie','tvSeries','tvMiniSeries','tvMovie'):
                       basics[tt] = {
                           'title': r['primaryTitle'],
@@ -56,11 +54,10 @@ jobs:
                           'genres': to_genres(r.get('genres'))
                       }
 
-          print("Loading creators...")
+          print("Loading creators - fixed...")
           creators_map = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
-              reader = csv.DictReader(f, delimiter='\t')
-              for r in reader:
+              for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
                   if t not in basics: continue
                   cat = (r.get('category') or '').strip().lower()
@@ -71,20 +68,17 @@ jobs:
                       creators_map[t].append((order, r['nconst']))
 
           print("Loading crew...")
-          writers_all = defaultdict(list)
-          directors_all = defaultdict(list)
+          writers_all, directors_all = defaultdict(list), defaultdict(list)
           with open('crew.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
                   if t not in basics: continue
                   d = r.get('directors')
                   if d and d!= r'\N':
-                      for nid in d.split(',')[:5]:
-                          directors_all[t].append(nid)
+                      for nid in d.split(',')[:5]: directors_all[t].append(nid)
                   w = r.get('writers')
                   if w and w!= r'\N':
-                      for nid in w.split(',')[:15]:
-                          writers_all[t].append(nid)
+                      for nid in w.split(',')[:15]: writers_all[t].append(nid)
 
           print("Loading actors...")
           actors_all = defaultdict(list)
@@ -97,40 +91,35 @@ jobs:
                       except: order = 999
                       actors_all[t].append((order, r['nconst']))
 
-          print("Writing titles only...")
-          os.makedirs('out/titles', exist_ok=True)
-          count_main = 0
-
+          print("Writing shards...")
+          shards = defaultdict(dict)
           for tid, info in basics.items():
               shard = tid[2:4]
-              # سازنده درست - بدون فالبک 2 نویسنده - یونیک
               cr = creators_map.get(tid, [])
-              seen = set()
-              cr_sorted = []
+              seen=set(); cr_sorted=[]
               for _, nid in sorted(cr):
                   if nid not in seen:
-                      seen.add(nid)
-                      cr_sorted.append(nid)
+                      seen.add(nid); cr_sorted.append(nid)
 
-              data = {
+              shards[shard][tid] = {
                   **info,
                   'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
                   'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
                   'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
                   'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
               }
-              os.makedirs(f'out/titles/{shard}', exist_ok=True)
-              with open(f'out/titles/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
+
+          os.makedirs('out/titles', exist_ok=True)
+          for shard, data in shards.items():
+              with open(f'out/titles/{shard}.json', 'w', encoding='utf-8') as out:
                   json.dump(data, out, ensure_ascii=False)
-              count_main += 1
+              print(f"shard {shard} -> {len(data)}")
 
           import datetime
-          with open('out/version.json', 'w') as vf:
-              json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "main": count_main, "episodes": 0}, vf)
-
-          print(f"Done main={count_main} episodes=0 skipped")
+          with open('out/version.json','w') as vf:
+              json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "total": len(basics)}, vf)
           PY
-
+          
       - name: Deploy titles only
         run: |
           set -euo pipefail
@@ -140,10 +129,10 @@ jobs:
 
           git checkout --orphan gh-pages
 
-          # حذف فایل‌های track‌شده‌ی branch قبلی
+          # حذف فایلهای trackشدهی branch قبلی
           git rm -rf . || true
 
-          # حذف فایل‌های دانلودشده و خروجی‌های ناخواسته
+          # حذف فایلهای دانلودشده و خروجیهای ناخواسته
           rm -rf .github out/episodes
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
 
@@ -155,4 +144,5 @@ jobs:
 
           git add titles version.json
           git commit -m "titles only - no episodes"
-          git push --force origin gh-pages
+ 
+      
