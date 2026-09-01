@@ -25,12 +25,12 @@ jobs:
           from collections import defaultdict
 
           def to_int(v):
-              if not v or v == '\\N': return None
+              if not v or v == r'\N': return None
               try: return int(v)
               except: return None
 
           def to_genres(v):
-              if not v or v == '\\N': return []
+              if not v or v == r'\N': return []
               return v.split(',')
 
           print("Loading names...")
@@ -75,11 +75,11 @@ jobs:
                   t = r['tconst']
                   if t not in basics: continue
                   d = r.get('directors')
-                  if d and d!= '\\N':
+                  if d and d!= r'\N':
                       for nid in d.split(',')[:5]:
                           directors_all[t].append(nid)
                   w = r.get('writers')
-                  if w and w!= '\\N':
+                  if w and w!= r'\N':
                       limit = 3 if t in episode_ids else 15
                       for nid in w.split(',')[:limit]:
                           writers_all[t].append(nid)
@@ -134,21 +134,21 @@ jobs:
 
           import datetime
           with open('out/version.json', 'w') as vf:
-              json.dump({"updated": datetime.datetime.utcnow().isoformat()+"Z", "main": count_main, "episodes": count_ep}, vf)
+              json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "main": count_main, "episodes": count_ep}, vf)
 
           print(f"Done main={count_main} episodes={count_ep}")
           PY
 
-          - name: Deploy titles only (fix no space)
-            run: |
-              git config user.name "bot"
-              git config user.email "bot@bot.com"
-              git checkout --orphan gh-pages
-              rm -rf .github
-              rm -f basics.tsv crew.tsv principals.tsv names.tsv
-              mv out/titles .
-              mv out/version.json .
-              rm -rf out
-              git add titles version.json
-              git commit -m "titles light - no episodes"
-              git push -f origin gh-pages
+      - name: Deploy titles only (fix no space)
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git checkout --orphan gh-pages
+          rm -rf .github
+          rm -f basics.tsv crew.tsv principals.tsv names.tsv
+          mv out/titles .
+          mv out/version.json .
+          rm -rf out
+          git add titles version.json
+          git commit -m "titles light - no episodes"
+          git push -f origin gh-pages
