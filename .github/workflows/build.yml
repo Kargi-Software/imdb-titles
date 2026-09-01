@@ -45,7 +45,6 @@ jobs:
               for r in csv.DictReader(f, delimiter='\t'):
                   tt = r['tconst']
                   typ = r['titleType']
-                  # فقط فیلم و سریال - tvEpisode حذف شد
                   if typ in ('movie','tvSeries','tvMiniSeries','tvMovie'):
                       basics[tt] = {
                           'title': r['primaryTitle'],
@@ -59,11 +58,16 @@ jobs:
           print("Loading creators...")
           creators_map = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
-              for r in csv.DictReader(f, delimiter='\t'):
-                  if r['tconst'] in basics and r['category'] == 'writer' and r['job'] == 'creator':
+              reader = csv.DictReader(f, delimiter='\t')
+              for r in reader:
+                  t = r['tconst']
+                  if t not in basics: continue
+                  cat = (r.get('category') or '').strip().lower()
+                  job = (r.get('job') or '').strip().lower()
+                  if cat == 'creator' or job == 'creator' or 'creator' in job:
                       try: order = int(r['ordering'])
                       except: order = 999
-                      creators_map[r['tconst']].append((order, r['nconst']))
+                      creators_map[t].append((order, r['nconst']))
 
           print("Loading crew...")
           writers_all = defaultdict(list)
@@ -98,10 +102,14 @@ jobs:
 
           for tid, info in basics.items():
               shard = tid[2:4]
+              # سازنده درست - بدون فالبک 2 نویسنده - یونیک
               cr = creators_map.get(tid, [])
-              cr_sorted = [n for _, n in sorted(cr)]
-              if info['type'] in ('tvSeries','tvMiniSeries') and not cr_sorted and writers_all.get(tid):
-                  cr_sorted = writers_all[tid][:2]
+              seen = set()
+              cr_sorted = []
+              for _, nid in sorted(cr):
+                  if nid not in seen:
+                      seen.add(nid)
+                      cr_sorted.append(nid)
 
               data = {
                   **info,
@@ -125,25 +133,15 @@ jobs:
       - name: Deploy titles only
         run: |
           set -euo pipefail
-
           git config user.name "bot"
           git config user.email "bot@bot.com"
-
           git checkout --orphan gh-pages
-
-          # حذف فایل‌های track‌شده‌ی branch قبلی
-          git rm -rf . || true
-
-          # حذف فایل‌های دانلودشده و خروجی‌های ناخواسته
-          rm -rf .github out/episodes
+          git rm -rf. || true
+          rm -rf.github out/episodes
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-
-          # انتقال فقط خروجی موردنیاز به root شاخه gh-pages
-          mv out/titles ./titles
-          mv out/version.json ./version.json
-
+          mv out/titles./titles
+          mv out/version.json./version.json
           rm -rf out
-
           git add titles version.json
-          git commit -m "titles only - no episodes"
+          git commit -m "titles only - fixed creators"
           git push --force origin gh-pages
