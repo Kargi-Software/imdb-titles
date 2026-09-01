@@ -41,12 +41,12 @@ jobs:
 
           print("Loading basics...")
           basics = {}
-          episode_ids = set()
           with open('basics.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   tt = r['tconst']
                   typ = r['titleType']
-                  if typ in ('movie','tvSeries','tvMiniSeries','tvMovie','tvEpisode'):
+                  # فقط فیلم و سریال - tvEpisode حذف شد
+                  if typ in ('movie','tvSeries','tvMiniSeries','tvMovie'):
                       basics[tt] = {
                           'title': r['primaryTitle'],
                           'type': typ,
@@ -55,8 +55,6 @@ jobs:
                           'runtime': to_int(r.get('runtimeMinutes')),
                           'genres': to_genres(r.get('genres'))
                       }
-                      if typ == 'tvEpisode':
-                          episode_ids.add(tt)
 
           print("Loading creators...")
           creators_map = defaultdict(list)
@@ -80,8 +78,7 @@ jobs:
                           directors_all[t].append(nid)
                   w = r.get('writers')
                   if w and w!= r'\N':
-                      limit = 3 if t in episode_ids else 15
-                      for nid in w.split(',')[:limit]:
+                      for nid in w.split(',')[:15]:
                           writers_all[t].append(nid)
 
           print("Loading actors...")
@@ -89,66 +86,52 @@ jobs:
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
                   t = r['tconst']
-                  if t not in basics or t in episode_ids: continue
+                  if t not in basics: continue
                   if r['category'] in ('actor','actress','self') and len(actors_all[t]) < 10:
                       try: order = int(r['ordering'])
                       except: order = 999
                       actors_all[t].append((order, r['nconst']))
 
-          print("Writing...")
+          print("Writing titles only...")
           os.makedirs('out/titles', exist_ok=True)
-          os.makedirs('out/episodes', exist_ok=True)
           count_main = 0
-          count_ep = 0
 
           for tid, info in basics.items():
               shard = tid[2:4]
-              is_ep = tid in episode_ids
               cr = creators_map.get(tid, [])
               cr_sorted = [n for _, n in sorted(cr)]
               if info['type'] in ('tvSeries','tvMiniSeries') and not cr_sorted and writers_all.get(tid):
                   cr_sorted = writers_all[tid][:2]
 
-              if is_ep:
-                  data = {
-                      **info,
-                      'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
-                      'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
-                  }
-                  os.makedirs(f'out/episodes/{shard}', exist_ok=True)
-                  with open(f'out/episodes/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
-                      json.dump(data, out, ensure_ascii=False)
-                  count_ep += 1
-              else:
-                  data = {
-                      **info,
-                      'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
-                      'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
-                      'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
-                      'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
-                  }
-                  os.makedirs(f'out/titles/{shard}', exist_ok=True)
-                  with open(f'out/titles/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
-                      json.dump(data, out, ensure_ascii=False)
-                  count_main += 1
+              data = {
+                  **info,
+                  'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
+                  'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
+                  'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
+                  'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
+              }
+              os.makedirs(f'out/titles/{shard}', exist_ok=True)
+              with open(f'out/titles/{shard}/{tid}.json', 'w', encoding='utf-8') as out:
+                  json.dump(data, out, ensure_ascii=False)
+              count_main += 1
 
           import datetime
           with open('out/version.json', 'w') as vf:
-              json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "main": count_main, "episodes": count_ep}, vf)
+              json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "main": count_main, "episodes": 0}, vf)
 
-          print(f"Done main={count_main} episodes={count_ep}")
+          print(f"Done main={count_main} episodes=0 skipped")
           PY
 
-      - name: Deploy titles only (fix no space)
+      - name: Deploy titles only
         run: |
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          rm -rf .github
+          rm -rf.github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          mv out/titles .
-          mv out/version.json .
+          mv out/titles.
+          mv out/version.json.
           rm -rf out
           git add titles version.json
-          git commit -m "titles light - no episodes"
+          git commit -m "titles only - no episodes"
           git push -f origin gh-pages
