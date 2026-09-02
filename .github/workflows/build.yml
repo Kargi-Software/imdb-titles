@@ -4,15 +4,17 @@ on:
   schedule:
     - cron: "0 2 * * 1"
   workflow_dispatch:
-  
+
 permissions:
   contents: write
-  
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download IMDb datasets
         run: |
@@ -57,7 +59,7 @@ jobs:
                           'genres': to_genres(r.get('genres'))
                       }
 
-          print("Loading creators - fixed...")
+          print("Loading creators from principals...")
           creators_map = defaultdict(list)
           with open('principals.tsv', encoding='utf-8') as f:
               for r in csv.DictReader(f, delimiter='\t'):
@@ -94,49 +96,49 @@ jobs:
                       except: order = 999
                       actors_all[t].append((order, r['nconst']))
 
-          print("Writing shards...")
-          shards = defaultdict(dict)
+          print("Writing per-title files (old addressing)...")
           for tid, info in basics.items():
               shard = tid[2:4]
+              # creators اصلی
               cr = creators_map.get(tid, [])
               seen=set(); cr_sorted=[]
               for _, nid in sorted(cr):
                   if nid not in seen:
                       seen.add(nid); cr_sorted.append(nid)
+              # فال‌بک: اگر tvSeries و creator خالی بود -> 2 نویسنده اول
+              if not cr_sorted and info['type'] in ('tvSeries','tvMiniSeries'):
+                  cr_sorted = writers_all.get(tid, [])[:2]
 
-              shards[shard][tid] = {
+              data = {
                   **info,
                   'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
                   'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
                   'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
                   'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
               }
-
-          os.makedirs('out/titles', exist_ok=True)
-          for shard, data in shards.items():
-              with open(f'out/titles/{shard}.json', 'w', encoding='utf-8') as out:
+              out_dir = f'out/titles/{shard}'
+              os.makedirs(out_dir, exist_ok=True)
+              with open(f'{out_dir}/{tid}.json', 'w', encoding='utf-8') as out:
                   json.dump(data, out, ensure_ascii=False)
-              print(f"shard {shard} -> {len(data)}")
 
           import datetime
           with open('out/version.json','w') as vf:
               json.dump({"updated": datetime.datetime.now(datetime.timezone.utc).isoformat(), "total": len(basics)}, vf)
           PY
-          
+
       - name: Deploy titles only
         run: |
           set -euo pipefail
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          git rm -rf . || true
-          rm -rf .github
-          rm -f *.tsv
-          touch .nojekyll
-          mv out/titles ./titles
-          mv out/version.json ./version.json
+          git rm -rf. || true
+          rm -rf.github
+          rm -f basics.tsv crew.tsv principals.tsv names.tsv
+          touch.nojekyll
+          mv out/titles./titles
+          mv out/version.json./version.json
           rm -rf out
-          git add .nojekyll titles version.json
-          git commit -m "titles shards $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git add.nojekyll titles version.json
+          git commit -m "titles only - no episodes - fallback creators"
           git push --force origin gh-pages
-      
