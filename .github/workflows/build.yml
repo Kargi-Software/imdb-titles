@@ -94,7 +94,17 @@ jobs:
                   if r['category'] in ('actor','actress','self') and len(actors_all[t]) < 10:
                       try: order = int(r['ordering'])
                       except: order = 999
-                      actors_all[t].append((order, r['nconst']))
+                       
+                      raw_char = r['characters']
+                      if raw_char and raw_char!= r'\N':
+                          try:
+                              chars = json.loads(raw_char)
+                              characters = ", ".join(chars) if isinstance(chars, list) else str(chars)
+                          except:
+                              characters = raw_char.strip('[]"')
+                      else:
+                          characters = None
+                      actors_all[t].append((order, r['nconst'], characters))
 
           print("Writing per-title files (old addressing)...")
           for tid, info in basics.items():
@@ -114,7 +124,7 @@ jobs:
                   'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
                   'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
                   'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
-                  'actors': [{'id': nid, 'name': names.get(nid, nid)} for _, nid in sorted(actors_all.get(tid, []))]
+                  'actors': [{'id': nid, 'name': names.get(nid, nid), 'characters': char} for _, nid in sorted(actors_all.get(tid, []))]
               }
               out_dir = f'out/titles/{shard}'
               os.makedirs(out_dir, exist_ok=True)
