@@ -127,7 +127,7 @@ jobs:
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
           git rm -rf . || true
-          rm -rf .github out
+          rm -rf .github
           rm -f *.tsv
           touch .nojekyll
           mv out/titles ./titles
@@ -136,5 +136,4 @@ jobs:
           git add .nojekyll titles version.json
           git commit -m "titles shards $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push --force origin gh-pages
- 
       
