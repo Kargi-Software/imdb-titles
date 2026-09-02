@@ -123,26 +123,18 @@ jobs:
       - name: Deploy titles only
         run: |
           set -euo pipefail
-
           git config user.name "bot"
           git config user.email "bot@bot.com"
-
           git checkout --orphan gh-pages
-
-          # حذف فایلهای trackشدهی branch قبلی
           git rm -rf . || true
-
-          # حذف فایلهای دانلودشده و خروجیهای ناخواسته
-          rm -rf .github out/episodes
-          rm -f basics.tsv crew.tsv principals.tsv names.tsv
-
-          # انتقال فقط خروجی موردنیاز به root شاخه gh-pages
+          rm -rf .github out
+          rm -f *.tsv
+          touch .nojekyll
           mv out/titles ./titles
           mv out/version.json ./version.json
-
           rm -rf out
-
-          git add titles version.json
-          git commit -m "titles only - no episodes"
+          git add .nojekyll titles version.json
+          git commit -m "titles shards $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push --force origin gh-pages
  
       
