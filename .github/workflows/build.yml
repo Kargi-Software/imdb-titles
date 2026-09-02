@@ -132,13 +132,13 @@ jobs:
           git config user.name "bot"
           git config user.email "bot@bot.com"
           git checkout --orphan gh-pages
-          git rm -rf. || true
-          rm -rf.github
+          git rm -rf . || true
+          rm -rf .github
           rm -f basics.tsv crew.tsv principals.tsv names.tsv
-          touch.nojekyll
-          mv out/titles./titles
-          mv out/version.json./version.json
+          touch .nojekyll
+          mv out/titles ./titles
+          mv out/version.json ./version.json
           rm -rf out
-          git add.nojekyll titles version.json
+          git add .nojekyll titles version.json
           git commit -m "titles only - no episodes - fallback creators"
           git push --force origin gh-pages
