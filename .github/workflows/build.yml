@@ -124,7 +124,10 @@ jobs:
                   'directors': [{'id': nid, 'name': names.get(nid, nid)} for nid in directors_all.get(tid, [])],
                   'writers': [{'id': nid, 'name': names.get(nid, nid)} for nid in writers_all.get(tid, [])],
                   'creators': [{'id': nid, 'name': names.get(nid, nid)} for nid in cr_sorted],
-                  'actors': [{'id': nid, 'name': names.get(nid, nid), 'characters': char} for _, nid in sorted(actors_all.get(tid, []))]
+                  'actors': [
+                                {'id': nid, 'name': names.get(nid, nid), 'characters': characters}
+                                for _, nid, characters in sorted(actors_all.get(tid, []), key=lambda x: x[0])
+                            ]
               }
               out_dir = f'out/titles/{shard}'
               os.makedirs(out_dir, exist_ok=True)
